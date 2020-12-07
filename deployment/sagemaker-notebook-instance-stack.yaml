@@ -1,0 +1,89 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "(SA0007) - sagemaker-graph-entity-resolution SageMaker stack"
+Parameters:
+  SolutionPrefix:
+    Description: Enter the name of the prefix for the solution used for naming
+    Type: String
+  SolutionS3BucketName:
+    Description: Enter the name of the S3 bucket for the solution
+    Type: String
+  S3InputDataPrefix:
+    Description: S3 prefix where raw data is stored
+    Type: String
+    Default:  "raw-data"
+  S3ProcessingJobOutputPrefix:
+    Description: S3 prefix where preprocessed data is stored after processing
+    Type: String
+    Default:  "preprocessed-data"
+  S3TrainingJobOutputPrefix:
+    Description: S3 prefix where training outputs are stored after training
+    Type: String
+    Default:  "training-output"
+  SageMakerNotebookInstanceType:
+    Description: Instance type of the SageMaker notebook instance
+    Type: String
+    Default:  "ml.t3.medium"
+  NotebookInstanceExecutionRoleArn:
+    Type: String
+    Description: Execution Role for the SageMaker notebook instance
+  StackVersion:
+    Type: String
+    Description: CloudFormation Stack version.
+    Default: "release"
+
+Mappings:
+  S3:
+    release:
+      BucketPrefix: "sagemaker-solutions-prod"
+    development:
+      BucketPrefix: "sagemaker-solutions-devo"
+  SageMaker:
+    Source:
+      S3Key: "Entity-resolution-for-smart-advertising/source/sagemaker/"
+
+Resources:
+  NotebookInstance:
+    Type: AWS::SageMaker::NotebookInstance
+    Properties:
+      DirectInternetAccess: Enabled
+      InstanceType: !Ref SageMakerNotebookInstanceType
+      LifecycleConfigName: !GetAtt LifeCycleConfig.NotebookInstanceLifecycleConfigName
+      NotebookInstanceName: !Sub "${SolutionPrefix}-notebook-instance"
+      RoleArn: !Ref NotebookInstanceExecutionRoleArn
+      VolumeSizeInGB: 120
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W1201
+            reason: Solution does not have KMS encryption enabled by default
+  LifeCycleConfig:
+    Type: AWS::SageMaker::NotebookInstanceLifecycleConfig
+    Properties:
+      NotebookInstanceLifecycleConfigName: !Sub "${SolutionPrefix}-nb-lifecycle-config"
+      OnCreate:
+        - Content:
+            Fn::Base64: !Sub
+            - |
+              cd /home/ec2-user/SageMaker
+              aws s3 cp --recursive s3://${SolutionsRefBucketBase}-${AWS::Region}/${SolutionsRefSource} .
+              touch stack_outputs.json
+              echo '{' >> stack_outputs.json
+              echo '  "IamRole": "${NotebookInstanceExecutionRoleArn}",' >> stack_outputs.json
+              echo '  "SolutionPrefix": "${SolutionPrefix}",' >> stack_outputs.json
+              echo '  "SolutionName": "Entity-resolution-for-smart-advertising",' >> stack_outputs.json
+              echo '  "SolutionUpstreamS3Bucket": "${SolutionsRefBucketBase}-${AWS::Region}",' >> stack_outputs.json
+              echo '  "SolutionS3Bucket": "${SolutionS3BucketName}",' >> stack_outputs.json
+              echo '  "S3InputDataPrefix": "${S3InputDataPrefix}",' >> stack_outputs.json
+              echo '  "S3ProcessingJobOutputPrefix": "${S3ProcessingJobOutputPrefix}",' >> stack_outputs.json
+              echo '  "S3TrainingJobOutputPrefix": "${S3TrainingJobOutputPrefix}"' >> stack_outputs.json
+              echo '}' >> stack_outputs.json
+              sudo chown -R ec2-user:ec2-user .
+            - SolutionsRefBucketBase: !FindInMap [S3, !Ref StackVersion, BucketPrefix]
+              SolutionsRefSource: !FindInMap [SageMaker, Source, S3Key]
+Outputs:
+  SourceCode:
+    Description: "Open Jupyter IDE. This authenticate you against Jupyter."
+    Value: !Sub "https://console.aws.amazon.com/sagemaker/home?region=${AWS::Region}#/notebook-instances/openNotebook/${SolutionPrefix}-notebook-instance?view=classic"
+  NotebookInstance:
+    Description: "SageMaker Notebook instance to manually orchestrate data preprocessing and model training"
+    Value: !Sub "https://${SolutionPrefix}-notebook-instance.notebook.${AWS::Region}.sagemaker.aws/notebooks/dgl-entity-resolution.ipynb"

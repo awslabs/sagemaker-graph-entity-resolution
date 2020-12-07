@@ -1,0 +1,222 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "(SA0007) - sagemaker-graph-entity-resolution: Solution for training a graph neural network model for entity resolution using Amazon SageMaker. Version 1"
+Parameters:
+  SolutionPrefix:
+    Type: String
+    Default: "sagemaker-soln-entity-res"
+    Description: |
+      Used to name resources created as part of this stack (and inside nested stacks too).
+      Can be the same as the stack name used by AWS CloudFormation, but this field has extra
+      constraints because it's used to name resources with restrictions (e.g. Amazon S3 bucket
+      names cannot contain capital letters).
+    AllowedPattern: '^sagemaker-soln-[a-z0-9\-]{1,20}$'
+    ConstraintDescription: |
+      Only allowed to use lowercase letters, hyphens and/or numbers.
+      Should also start with 'sagemaker-soln-entity-res' for permission management.
+  IamRole:
+    Type: String
+    Default: ""
+    Description: |
+      IAM Role that will be attached to the resources created by this cloudformation to grant them permissions to
+      perform their required functions. This role should allow SageMaker and Lambda perform the required actions like
+      creating training jobs and processing jobs. If left blank, the template will attempt to create a role for you.
+      This can cause a stack creation error if you don't have privileges to create new roles.
+  S3RawDataPrefix:
+    Description: Enter the S3 prefix where user interaction logs and known resolved entities are stored.
+    Type: String
+    Default: "raw-data"
+  S3ProcessingJobOutputPrefix:
+    Description: Enter the S3 prefix where preprocessed data should be stored and monitored for changes to start the training job
+    Type: String
+    Default: "preprocessed-data"
+  S3TrainingJobOutputPrefix:
+    Description: Enter the S3 prefix where model and output artifacts from the training job should be stored
+    Type: String
+    Default: "training-output"
+  CreateSageMakerNotebookInstance:
+    Description: Whether to launch classic sagemaker notebook instance
+    Type: String
+    AllowedValues:
+      - "true"
+      - "false"
+    Default: "false"
+  SageMakerNotebookInstanceType:
+    Description: Instance type of the SageMaker notebook instance
+    Type: String
+    Default:  "ml.m4.xlarge"
+  StackVersion:
+    Description: |
+      CloudFormation Stack version.
+      Use 'release' version unless you are customizing the
+      CloudFormation templates and solution artifacts.
+    Type: String
+    Default: release
+    AllowedValues:
+      - release
+      - development
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: Solution Configuration
+        Parameters:
+          - SolutionPrefix
+          - IamRole
+          - StackVersion
+      -
+        Label:
+          default: S3 Configuration
+        Parameters:
+          - S3RawDataPrefix
+          - S3ProcessingJobOutputPrefix
+          - S3TrainingJobOutputPrefix
+      -
+        Label:
+          default: SageMaker Configuration
+        Parameters:
+          - CreateSageMakerNotebookInstance
+          - SageMakerNotebookInstanceType
+    ParameterLabels:
+      SolutionPrefix:
+        default: Solution Resources Name Prefix
+      IamRole:
+        default: Solution IAM Role Arn
+      StackVersion:
+        default: Solution Stack Version
+      S3RawDataPrefix:
+        default: S3 Data Prefix
+      S3ProcessingJobOutputPrefix:
+        default: S3 Preprocessed Data Prefix
+      S3TrainingJobOutputPrefix:
+        default: S3 Training Results Prefix
+      CreateSageMakerNotebookInstance:
+        default: Launch Classic SageMaker Notebook Instance
+      SageMakerNotebookInstanceType:
+        default: SageMaker Notebook Instance
+
+Mappings:
+  S3:
+    release:
+      BucketPrefix: "sagemaker-solutions-prod"
+    development:
+      BucketPrefix: "sagemaker-solutions-devo"
+
+Conditions:
+  CreateClassicSageMakerResources: !Equals [ !Ref CreateSageMakerNotebookInstance, "true" ]
+  CreateCustomSolutionRole: !Equals [!Ref IamRole, ""]
+
+Resources:
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${SolutionPrefix}-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          -
+            ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W35
+            reason: Configuring logging requires supplying an existing customer S3 bucket to store logs
+          - id: W51
+            reason: Default access policy suffices
+
+  SolutionAssistantStack:
+    Type: "AWS::CloudFormation::Stack"
+    Properties:
+      TemplateURL: !Sub
+        - "https://s3.${Region}.amazonaws.com/${SolutionRefBucketBase}-${Region}/Entity-resolution-for-smart-advertising/deployment/solution-assistant/solution-assistant.yaml"
+        - SolutionRefBucketBase: !FindInMap [S3, !Ref StackVersion, BucketPrefix]
+          Region: !Ref AWS::Region
+      Parameters:
+        SolutionPrefix: !Ref SolutionPrefix
+        SolutionsRefBucketName: !Sub
+          - "${SolutionRefBucketBase}-${AWS::Region}"
+          - SolutionRefBucketBase: !FindInMap [S3, !Ref StackVersion, BucketPrefix]
+        SolutionS3BucketName: !Sub "${SolutionPrefix}-${AWS::AccountId}-${AWS::Region}"
+        RoleArn: !If [CreateCustomSolutionRole, !GetAtt SageMakerPermissionsStack.Outputs.SageMakerRoleArn, !Ref IamRole]
+  
+  SageMakerPermissionsStack:
+    Type: "AWS::CloudFormation::Stack"
+    Condition: CreateCustomSolutionRole
+    Properties:
+      TemplateURL: !Sub
+      - "https://s3.${Region}.amazonaws.com/${SolutionRefBucketBase}-${Region}/Entity-resolution-for-smart-advertising/deployment/sagemaker-permissions-stack.yaml"
+      - SolutionRefBucketBase: !FindInMap [S3, !Ref StackVersion, BucketPrefix]
+        Region: !Ref AWS::Region
+      Parameters:
+        SolutionPrefix: !Ref SolutionPrefix
+        SolutionS3BucketName: !Sub "${SolutionPrefix}-${AWS::AccountId}-${AWS::Region}"
+        StackVersion: !Ref StackVersion
+
+  SageMakerStack:
+    Type: "AWS::CloudFormation::Stack"
+    Condition: CreateClassicSageMakerResources
+    Properties:
+      TemplateURL: !Sub
+      - "https://s3.${Region}.amazonaws.com/${SolutionRefBucketBase}-${Region}/Entity-resolution-for-smart-advertising/deployment/sagemaker-notebook-instance-stack.yaml"
+      - SolutionRefBucketBase: !FindInMap [S3, !Ref StackVersion, BucketPrefix]
+        Region: !Ref AWS::Region
+      Parameters:
+        SolutionPrefix: !Ref SolutionPrefix
+        SolutionS3BucketName: !Sub "${SolutionPrefix}-${AWS::AccountId}-${AWS::Region}"
+        S3InputDataPrefix: !Ref S3RawDataPrefix
+        S3ProcessingJobOutputPrefix: !Ref S3ProcessingJobOutputPrefix
+        S3TrainingJobOutputPrefix: !Ref S3TrainingJobOutputPrefix
+        SageMakerNotebookInstanceType: !Ref SageMakerNotebookInstanceType
+        NotebookInstanceExecutionRoleArn: !If [CreateCustomSolutionRole, !GetAtt SageMakerPermissionsStack.Outputs.SageMakerRoleArn, !Ref IamRole]
+        StackVersion: !Ref StackVersion
+
+Outputs:
+  SourceCode:
+    Condition: CreateClassicSageMakerResources
+    Description: "Open Jupyter IDE. This authenticate you against Jupyter."
+    Value: !GetAtt SageMakerStack.Outputs.SourceCode
+
+  NotebookInstance: 
+    Condition: CreateClassicSageMakerResources
+    Description: "SageMaker Notebook instance to manually orchestrate data preprocessing and model training"
+    Value: !GetAtt SageMakerStack.Outputs.NotebookInstance
+
+  IamRole:
+    Description: "Arn of SageMaker Execution Role"
+    Value: !If [CreateCustomSolutionRole, !GetAtt SageMakerPermissionsStack.Outputs.SageMakerRoleArn, !Ref IamRole]
+
+  SolutionPrefix:
+    Description: "Solution Prefix for naming SageMaker transient resources"
+    Value: !Ref SolutionPrefix
+
+  SolutionName:
+    Description: "Name of the solution"
+    Value: "Entity-resolution-for-smart-advertising"
+
+  SolutionUpstreamS3Bucket:
+    Description: "Upstream solutions bucket"
+    Value: !Sub
+      - "${SolutionRefBucketBase}-${AWS::Region}"
+      - SolutionRefBucketBase: !FindInMap [S3, !Ref StackVersion, BucketPrefix]
+
+  SolutionS3Bucket:
+    Description: "Solution S3 bucket name"
+    Value: !Sub "${SolutionPrefix}-${AWS::AccountId}-${AWS::Region}"
+
+  S3InputDataPrefix:
+    Description: "S3 bucket prefix for raw data"
+    Value: !Ref S3RawDataPrefix
+
+  S3ProcessingJobOutputPrefix:
+    Description: "S3 bucket prefix for processed data"
+    Value: !Ref S3ProcessingJobOutputPrefix
+
+  S3TrainingJobOutputPrefix:
+    Description: "S3 bucket prefix for trained model and other artifacts"
+    Value: !Ref S3TrainingJobOutputPrefix

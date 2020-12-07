@@ -1,0 +1,61 @@
+{
+    "id": "sagemaker-soln-ger",
+    "name": "Amazon SageMaker and Deep Graph Library for Entity Resolution in Identity Graphs",
+    "shortName": "Graph Entity Resolution",
+    "priority": 0,
+    "desc": "User identity plays the essential role in the success of an online advertising company/platform but as the number and variety of different devices increases, online user activity becomes highly fragmented. In this project, we show how to use SageMaker and Graph Neural Networks to perform cross-device entity linking for online advertising.",
+    "meta": "entity activity resolution graph gnn network identity",
+    "tags": ["advertising", "identity resolution", "personalization"],
+    "parameters": [
+        {
+            "name": "SolutionPrefix",
+            "type": "text",
+            "default": "sagemaker-soln-graph-entity"
+        },
+        {
+            "name": "IamRole",
+            "type": "text",
+            "default": ""
+        },
+        {
+            "name": "S3RawDataPrefix",
+            "type": "text",
+            "default": "raw-data"
+        },
+        {
+            "name": "S3ProcessingJobOutputPrefix",
+            "type": "text",
+            "default": "preprocessed-data"
+        },
+        {
+            "name": "S3TrainingJobOutputPrefix",
+            "type": "text",
+            "default": "training-output"
+        },
+        {
+            "name": "CreateSageMakerNotebookInstance",
+            "type": "text",
+            "default": "false"
+        },
+        {
+            "name": "SageMakerNotebookInstanceType",
+            "type": "text",
+            "default": "ml.m4.xlarge"
+        },
+        {
+            "name": "StackVersion",
+            "type": "text",
+            "default": "release"
+        }
+    ],
+    "acknowledgements": ["CAPABILITY_IAM","CAPABILITY_NAMED_IAM"],
+    "cloudFormationTemplate": "s3-us-east-2.amazonaws.com/sagemaker-solutions-build-us-east-2/Entity-resolution-for-smart-advertising/deployment/sagemaker-graph-entity-resolution.yaml",
+    "serviceCatalogProduct": "TBD",
+    "copyS3Source": "sagemaker-solutions-build-us-east-2",
+    "copyS3SourcePrefix": "Entity-resolution-for-smart-advertising/source/sagemaker",
+    "notebooksDirectory": "Entity-resolution-for-smart-advertising/source/sagemaker",
+    "notebookPaths": [
+        "Entity-resolution-for-smart-advertising/source/sagemaker/dgl-entity-resolution.ipynb"
+    ],
+    "permissions": "TBD"
+ }
